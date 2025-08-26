@@ -1,2 +1,0 @@
-2025-08-26 17:10:30,342 INFO httpx HTTP Request: POST https://razureopenaiservice.openai.azure.com/openai/responses?api-version=2025-04-01-preview "HTTP/1.1 200 OK"
-2025-08-26 17:18:15,741 INFO httpx HTTP Request: POST https://razureopenaiservice.openai.azure.com/openai/responses?api-version=2025-04-01-preview "HTTP/1.1 200 OK"

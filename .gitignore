@@ -10,7 +10,6 @@ __pycache__/
 .venv/
 .envrc
 logs/
-
 # VSCode
 **_cache/
 # Jupyter
