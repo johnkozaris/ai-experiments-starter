@@ -4,6 +4,10 @@ version = "0.1.0"
 description = "UV-based OpenAI/Azure OpenAI experimentation harness (datasets + prompts + schemas + runs)"
 readme = "README.md"
 requires-python = ">=3.13"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Ioannis Kozaris" }
+]
 
 # Core runtime deps (lean but modern)
 dependencies = [

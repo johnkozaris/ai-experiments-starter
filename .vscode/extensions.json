@@ -1,0 +1,10 @@
+{
+  "recommendations": [
+    "ms-python.python",        // Python language support + debugger
+    "ms-python.vscode-pylance",// Pylance for fast type checking / IntelliSense
+    "charliermarsh.ruff",      // Ruff linter/formatter integration
+    "ms-toolsai.jupyter",      // Notebooks support
+    "tamasfe.even-better-toml",// TOML editing (pyproject)
+    "streetsidesoftware.code-spell-checker", // Spell checking
+  ]
+}

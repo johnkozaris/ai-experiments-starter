@@ -1,0 +1,27 @@
+{
+    "cSpell.words": [
+        "dotenv",
+        "pydantic"
+    ],
+    "cSpell.ignorePaths": [
+        "**/*.jsonl",
+        "**/.venv/**",
+        "**/__pycache__/**",
+        "experiments/runs/**",
+        "**/.mypy_cache/**",
+        "**/*.lock",
+        ""
+    ],
+    "search.exclude": {
+        "experiments/runs/**": true
+    },
+    "files.watcherExclude": {
+        "experiments/runs/**": true
+    },
+    "python.analysis.exclude": [
+        "!experiments/**"
+    ],
+    "python.analysis.extraPaths": [
+        "./src"
+    ]
+}

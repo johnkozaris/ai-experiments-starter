@@ -1,0 +1,28 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Format (ruff)",
+      "type": "shell",
+      "command": "uv run ruff format .",
+      "problemMatcher": []
+    },
+    {
+      "label": "Lint (ruff)",
+      "type": "shell",
+      "command": "uv run ruff check ."
+    },
+    {
+      "label": "Type Check (mypy)",
+      "type": "shell",
+      "command": "uv run mypy .",
+      "problemMatcher": []
+  },
+    {
+      "label": "Run CLI (expt batch)",
+      "type": "shell",
+      "command": "uv run python -m experiments.cli batch --model gpt-4o-mini --dataset-path experiments/datasets/samples.jsonl --schema-model experiments.schemas.models.Extraction --provider openai --limit 2",
+      "problemMatcher": []
+    }
+  ]
+}

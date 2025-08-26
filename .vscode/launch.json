@@ -1,0 +1,31 @@
+{
+  // Debug configurations
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug CLI (expt batch)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "experiments.cli",
+      "justMyCode": true,
+      "args": [
+        "batch",
+        "--model", "gpt-4o-mini",
+        "--dataset-path", "experiments/datasets/samples.jsonl",
+        "--schema-model", "experiments.schemas.models.Extraction",
+        "--provider", "openai",
+        "--limit", "2"
+      ],
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal"
+  },
+    {
+      "name": "Jupyter: Current File (interactive)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    }
+  ]
+}
