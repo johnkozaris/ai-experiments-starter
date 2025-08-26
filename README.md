@@ -1,8 +1,6 @@
 # Experiment Harness (OpenAI & Azure OpenAI)
 
-Pragmatic tooling to define, run, chain and evaluate LLM experiments with optional structured outputs.
-
-Lean concepts only: experiment spec (+ prompts + dataset) -> run -> single JSON artifact + logs -> lightweight analytics.
+This project is an easy and  ready to go harness to define (datasets, prompts, instructions), run(OpenAI AzureOpenAI), chain and evaluate LLM experiments.
 
 ## 1. Install & Env
 
@@ -192,14 +190,5 @@ uv run typecheck # mypy
 
 ## 11. Notebooks
 
-Lightweight exploratory and demo workflows live under `notebooks/` and operate directly on `result.json` artifacts (no bespoke loaders needed):
+Add new notebooks freely
 
-- `01_experiment_walkthrough.ipynb`: Lean interactive quickstart — load or draft an experiment (ephemeral), preview a dataset, run with limit / dry‑run, then analyze the latest run (manifest, metrics, sample records, history charts, raw request log snippet).
-
-Add new notebooks freely; keep them self‑contained and prefer pure reads over mutating run directories (other than creating new runs via the runner).
-
-## 12. Gotchas / Tips
-
-- Large outputs: live preview truncates at ~1200 chars for terminal readability.
-- Structured parsing fallback: if strict parse fails we retry with JSON schema; if still unusable we keep raw text for manual inspection.
-- Dependency selection paths use dot notation over the record root.
