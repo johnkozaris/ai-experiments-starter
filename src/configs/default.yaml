@@ -1,0 +1,16 @@
+# Default experiment configuration
+model: gpt-4o-mini
+max_output_tokens: 1024
+temperature: 0.2
+seed: 42
+request_timeout: 60
+retry:
+  max_attempts: 3
+  backoff_seconds: 2
+input:
+  dataset_path: experiments/datasets/samples.jsonl
+  limit: 50
+schema:
+  model_class: app.schemas.extraction.AcquisitionExtraction
+output:
+  run_dir: src/output

@@ -1,0 +1,4 @@
+Guidelines:
+- If a value is missing, use null (not an empty string).
+- Investors list must contain unique investor names.
+- Monetary amounts should be floats (millions USD) when possible.

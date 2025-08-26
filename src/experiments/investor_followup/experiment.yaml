@@ -1,0 +1,17 @@
+name: investor_followup
+description: "Generate investor-focused follow-up prompts from extraction outputs"
+model: gpt-4o-mini
+provider: azure
+# free-form (no schema)
+system_prompt: prompts/system/investor.txt
+user_prompt: prompts/user/investor_followup.jinja
+instructions: []
+temperature: 0.2
+max_output_tokens: 300
+depends_on:
+  - experiment: acq_yaml
+    select: output  # entire extraction output
+    transform:
+      fn: experiments.investor_followup.transforms.investor_transform:build_dataset
+      config:
+        min_investors: 1

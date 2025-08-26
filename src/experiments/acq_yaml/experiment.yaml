@@ -1,0 +1,13 @@
+name: acq_yaml
+description: "Structured acquisition extraction (YAML defined)"
+model: gpt-4o-mini
+provider: azure
+schema_model: app.schemas.extraction.AcquisitionExtraction
+system_prompt: prompts/system/extraction.txt
+user_prompt: prompts/user/extraction.jinja
+instructions:
+  - prompts/instructions/guidelines.txt
+dataset: ../../datasets/samples.jsonl
+temperature: 0.0
+max_output_tokens: 512
+depends_on: []

@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.build/
+*.egg-info/
+.env
+.venv/
+.envrc
+
+# VSCode
+.vscode/
+**_cache/
+# Jupyter
+.ipynb_checkpoints/
+
+# Runs / Output (ignore transient logs & temp files under new src/output)
+src/output/**
+# Cache / tooling
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.cache/
+
+# OS
+.DS_Store
+Thumbs.db
