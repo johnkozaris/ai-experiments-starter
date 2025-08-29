@@ -26,15 +26,15 @@ app = typer.Typer(help="Run batch structured extraction src.")
 @app.command(name="run")
 def batch_run(
     model: Annotated[str, typer.Option(help="Model name")] = "gpt-4o-mini",
-    dataset_path: Annotated[
-        Path, typer.Option(help="Input JSONL dataset")
-    ] = Path("src/datasets/samples.jsonl"),
-    system_prompt: Annotated[
-        Path, typer.Option(help="System prompt path")
-    ] = Path("src/experiments/acq_yaml/prompts/system/extraction.txt"),
-    user_prompt: Annotated[
-        Path, typer.Option(help="User prompt path")
-    ] = Path("src/experiments/acq_yaml/prompts/user/extraction.jinja"),
+    dataset_path: Annotated[Path, typer.Option(help="Input JSONL dataset")] = Path(
+        "src/datasets/samples.jsonl"
+    ),
+    system_prompt: Annotated[Path, typer.Option(help="System prompt path")] = Path(
+        "src/experiments/acq_yaml/prompts/system/extraction.txt"
+    ),
+    user_prompt: Annotated[Path, typer.Option(help="User prompt path")] = Path(
+        "src/experiments/acq_yaml/prompts/user/extraction.jinja"
+    ),
     instructions: Annotated[
         list[Path] | None,
         typer.Option(
@@ -43,12 +43,11 @@ def batch_run(
         ),
     ] = None,
     schema_model: Annotated[
-        str,
-        typer.Option(help="Pydantic model path (omit or empty for free-form)")
+        str, typer.Option(help="Pydantic model path (omit or empty for free-form)")
     ] = "",
     provider: Annotated[str, typer.Option(help="openai|azure")] = "openai",
     run_base: Annotated[str, typer.Option(help="Run output base dir")] = "src/output",
-    limit: Annotated[int | None, typer.Option(help="Limit number of records") ] = None,
+    limit: Annotated[int | None, typer.Option(help="Limit number of records")] = None,
     temperature: Annotated[float, typer.Option(help="Generation temperature")] = 0.0,
     max_output_tokens: Annotated[int, typer.Option(help="Max output tokens")] = 512,
     dry_run: Annotated[

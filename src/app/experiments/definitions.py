@@ -34,6 +34,9 @@ class ExperimentSpec:
     depends_on: list[DependencySpec] = field(default_factory=list)
     # name template for output directories (variables: experiment, timestamp)
     output_template: str = "{experiment}/{timestamp}"
+    # Declarative record selection (1-based indices / ranges) e.g. "1", "1-5", "1,3,7-9".
+    # "0" maps to first record. Default processes the first record only.
+    record_selection: str | None = None
 
     def apply_overrides(self, overrides: dict[str, Any]) -> None:
         for k, v in overrides.items():
@@ -98,6 +101,7 @@ class ResolvedExperiment:
                 for d in self.spec.depends_on
             ],
             "output_template": self.spec.output_template,
+            "record_selection": self.spec.record_selection,
         }
 
 
@@ -140,4 +144,5 @@ def coerce_experiment_dict(d: dict[str, Any]) -> ExperimentSpec:
         max_output_tokens=int(d.get("max_output_tokens", 512)),
         depends_on=deps,
         output_template=d.get("output_template", "{experiment}/{timestamp}"),
+    record_selection=d.get("record_selection"),
     )

@@ -1,6 +1,6 @@
 """Application root package (runtime, pipelines, experiment framework)."""
 
 __all__ = [
-	"cli",
+    "cli",
 ]
 """Application layer: runtime, CLI, pipelines, clients, utils."""

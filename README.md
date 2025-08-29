@@ -28,7 +28,7 @@ uv run exp show acq_yaml        # show experiment details for experiment acq_yam
 uv run exp run acq_yaml         # run experiment acq_yaml
 uv run exp run acq_yaml --limit 3 --dry-run
 uv run exp run acq_yaml --override temperature=0.2 --override max_output_tokens=256
-uv run exp chain run investor_followup   # run multiple experiments chained together
+uv run exp chain run acq_yaml investor_followup   # chain: outputs of acq_yaml feed investor_followup
 ```
 
 While running you see panels with the raw response (truncated). After completion a summary panel shows tokens, latency, and a sample output.
@@ -39,32 +39,62 @@ While running you see panels with the raw response (truncated). After completion
 
 ```mermaid
 flowchart LR
-  Spec[Experiment Spec] --> Runner
-  Prompts[Prompts Files] --> Runner
-  Data[Dataset JSONL] --> Runner
-  Runner[Batch Runner] --> LLM[[LLM API]] --> Runner
-  Runner --> Result[result.json]
-  Runner --> Logs[llm_requests.jsonl]
-  Result --> Summary[runs_summary.jsonl]
-  Result --> Analytics[analytics.json]
+  subgraph Inputs
+    Spec[Experiment Spec]
+    Prompts[Prompts]
+    Data[(Dataset .json/.jsonl)]
+  end
+  Spec --> Runner
+  Prompts --> Runner
+  Data --> Runner
+  Runner[Runner\n per-record loop] -->|1 call / record| LLM[[LLM API]] --> Runner
+  Runner --> Manifest[experiment_manifest.json]
+  Runner --> Agg[experiment_results.jsonl]
+  Runner --> RecDir[record*/result.json + input_manifest.json]
+  Runner --> Logs[logs/llm_requests.jsonl]
+  Runner --> PromptsSnap[prompts_used.json]
+  Agg --> Summary[runs_summary.jsonl]
+  Summary --> Analytics[analytics.json]
+  Manifest --> Latest[latest.txt]
+  Eval[evaluation.json] -. optional (eval pipeline) .-> Summary
 ```
 
 ### 3.2 Chaining Experiments
 
+When you run:
+
+```powershell
+uv run exp chain run expA expB expC
+```
+
+the outputs of each experiment (each `recordN/result.json`) are loaded in‑memory and become the dataset for the next experiment.  If experiment A produces N records, experiment B receives N injected records (unless you limit or apply `record_selection`). If `record_selection` is omitted for a chained experiment, ALL upstream records are processed. Downstream on‑disk `dataset` definitions are ignored when upstream injected records are present (the chain data takes precedence).
+
+Each injected record is the JSON of the prior run's `recordN/result.json` with an added convenience alias `upstream_output` (copy of `output` dict) to simplify Jinja templates: e.g. `{{ upstream_output.field }}`.
+
+Inter‑request pacing: a fixed 2s delay between LLM calls within a run (except dry‑run) to reduce rate spikes. The LLM client performs exactly one network call per record (no hidden retries or fallback second calls), ensuring strict idempotence.
+
 ```mermaid
 flowchart LR
-  AResult[result.json A] -. select / transform .-> BData[Derived Dataset B]
-  BSpec[Spec B] --> BRunner[Runner B]
-  BData --> BRunner
-  PromptsB[Prompts B] --> BRunner
-  BRunner --> LLM2[[LLM API]] --> BRunner
-  BRunner --> BResult[result.json B]
-  subgraph Previous Run A
+  subgraph RunA[Experiment A]
     ASpec[Spec A] --> ARunner[Runner A]
     APrompts[Prompts A] --> ARunner
-    ADataset[Dataset A] --> ARunner
-    ARunner --> AResult
+    ADataset[Dataset A?] --> ARunner
+    ARunner --> ARec[record*/result.json]
   end
+  ARec -- inject in-memory --> BRunner
+  subgraph RunB[Experiment B]
+    BSpec[Spec B] --> BRunner[Runner B]
+    BPrompts[Prompts B] --> BRunner
+    BRunner --> BRec[record*/result.json]
+  end
+  BRec -- inject in-memory --> CRunner
+  subgraph RunC[Experiment C]
+    CSpec[Spec C] --> CRunner[Runner C]
+    CPrompts[Prompts C] --> CRunner
+    CRunner --> CRec[record*/result.json]
+  end
+  classDef inj stroke:#ff9800,stroke-width:2px;
+  ARec:::inj; BRec:::inj;
 ```
 
 ## 3. Defining Experiments
@@ -76,7 +106,7 @@ Two forms:
 1. YAML (`experiment.yaml`)
 2. Python (`experiment.py` implementing `get_experiment()` returning `ExperimentSpec`)
 
-Minimal YAML example:
+YAML example:
 
 ```yaml
 name: acq_yaml
@@ -94,7 +124,7 @@ max_output_tokens: 512
 depends_on: []
 ```
 
-Python example sketch:
+Python example :
 
 ```python
 from app.experiments.definitions import ExperimentSpec
@@ -115,15 +145,15 @@ def get_experiment() -> ExperimentSpec:
     )
 ```
 
-## 4. Structured vs Free‑form
+## 4. Structured vs Free‑form output
 
 If `schema_model` is set we attempt structured parsing (Pydantic) with fallback to standard text if the API rejects the schema; output is validated post‑hoc. Otherwise the raw text is returned.
 
-Record shape in `result.json` (simplified):
+Per-record slim result shape (`recordN/result.json`):
 
 ```json
 {
-  "input": {...original dataset row...},
+  "input": {...dataset row...},
   "output": { "field": "value" } | { "text": "..." } | { "refusal": "..." } | { "error": "..." },
   "validated": true,
   "validation_errors": null,
@@ -138,24 +168,33 @@ Record shape in `result.json` (simplified):
 
 ## 5. Outputs
 
-Each run: `src/output/<experiment>/<timestamp>/` containing:
+Each run directory: `src/output/<experiment>/<timestamp>/` contains:
 
-- `result.json` (single artifact)
-  - `manifest`: experiment + config snapshot + dependency run refs + token summary + avg latency
-  - `metrics`: counts, token totals, latency list (raw) – quick stats
-  - `records`: array of per‑record outputs
-  - (optional) `evaluation`: added by evaluation pipeline
-- `prompts_used.json`: system, user template, instruction texts
-- `logs/llm_requests.jsonl`: raw_request and raw_response entries (sanitized)
-- `runs_summary.jsonl`: appended run-level summaries (one line per run, lives in experiment root)
-- `analytics.json`: aggregated longitudinal stats (cumulative tokens, rolling averages, extremes)
-- `latest.txt`: pointer to latest timestamp
+1. `experiment_manifest.json` – top-level object with:
 
-Legacy multi-file artifacts (`results.jsonl`, `manifest.json`, `metrics.json`, `prompts/` folder) are deprecated; fallback readers remain only for dependency + eval compatibility.
+* `manifest`: config snapshot (name, model, provider, schema, record_selection, token_usage, avg_latency)
+* `metrics`: summarized counts (records, validations, token totals, success_pct, refusals, parse_fallbacks, latency distribution)
 
-## 6. Chaining
+1. `experiment_results.jsonl` – newline-delimited slim per-record result objects (no original input to keep small).
 
-Add entries under `depends_on` in the spec. For each dependency the latest run is read (prefers `result.json`), a selection path extracts the portion used as the downstream dataset. Optional transform can reshape the list.
+1. `recordN/` folders – one per processed dataset record (1-based index):
+
+* `input_manifest.json` (index + original input)
+* `result.json` (slim result for that record – mirrors lines in the aggregate JSONL)
+
+1. `prompts_used.json` – snapshot of system prompt, user template source, and concatenated instructions used for reproducibility.
+
+1. `logs/llm_requests.jsonl` – per API call: raw_request / raw_response / structured parse events (sanitized tokens & timing).
+
+1. `runs_summary.jsonl` – (experiment root) one line per run summarizing tokens, success pct, latency, run_dir.
+
+1. `analytics.json` – aggregated historical statistics (averages, extremes, cumulative tokens, rolling last-5 window).
+
+1. `latest.txt` – simple pointer to the latest timestamp directory.
+
+1. `evaluation.json` – added by evaluation pipeline (field coverage & validation metrics) – separate file (no mutation of results).
+
+Removed: previous monolithic `result.json` (merged manifest+records) and legacy `results.jsonl`. Fallback readers eliminated except for dependency resolution scanning `experiment_results.jsonl` then `record*/result.json`.
 
 ## 7. Overrides
 
@@ -167,28 +206,4 @@ Repeat `--override key=value` to temporarily change scalar spec fields (e.g. tem
 uv run exp eval run src/output/acq_yaml/<timestamp>
 ```
 
-Adds an `evaluation` block into `result.json` (field coverage, validation rate, error rate). Falls back to writing `metrics.json` only if legacy layout detected.
-
-## 9. Logging & Analytics
-
-Per-request JSONL log lines:
-
-```jsonl
-{"event":"raw_request", ...}
-{"event":"raw_response", ...}
-```
-
-Analytics file (`analytics.json`) summarizes across all runs of an experiment (no embedding of full recent runs to keep size small): counts, averages, extremes, rolling last 5 window, cumulative token totals.
-
-## 10. Dev Tooling
-
-```powershell
-uv run fmt       # format (ruff)
-uv run lint      # lint (ruff)
-uv run typecheck # mypy
-```
-
-## 11. Notebooks
-
-Add new notebooks freely
-
+Creates `evaluation.json` alongside other artifacts (field coverage, validation rate, error rate). It does not mutate existing artifacts.

@@ -20,9 +20,7 @@ def setup_logging(level: int = _DEF_LEVEL) -> None:
         Path(log_dir).mkdir(parents=True, exist_ok=True)
         file_handler = logging.FileHandler(Path(log_dir) / "app.log", encoding="utf-8")
         file_handler.setFormatter(
-            logging.Formatter(
-                "%(asctime)s %(levelname)s %(name)s %(message)s"
-            )
+            logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
         )
         handlers.append(file_handler)
     except Exception as exc:  # pragma: no cover

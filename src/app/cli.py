@@ -124,13 +124,14 @@ def run_experiment_cmd(
     import json as _j
     import logging as _logging
     from pathlib import Path as _P
-    result_path = _P(path) / "result.json"
-    if result_path.exists():
+
+    manifest_path = _P(path) / "experiment_manifest.json"
+    results_path = _P(path) / "experiment_results.jsonl"
+    if manifest_path.exists() and results_path.exists():
         try:
-            data = _j.loads(result_path.read_text(encoding="utf-8"))
+            data = _j.loads(manifest_path.read_text(encoding="utf-8"))
             manifest = data.get("manifest", {})
             metrics = data.get("metrics", {})
-            records = data.get("records", [])
             console = Console()
             info_table = Table(box=None, show_header=False)
             info_table.add_row("Records", str(metrics.get("records")))
@@ -145,17 +146,41 @@ def run_experiment_cmd(
             )
             if metrics.get("avg_latency_ms"):
                 info_table.add_row("Avg latency (ms)", f"{metrics['avg_latency_ms']:.2f}")
+            if metrics.get("success_pct") is not None:
+                info_table.add_row("Success %", f"{metrics['success_pct']:.2f}")
             console.print(info_table)
-            # Show first output (raw text or JSON) as sample
-            if records:
-                first = records[0].get("output")
+            # Read first line sample output
+            first_output = None
+            with results_path.open("r", encoding="utf-8") as rf:
+                first_line = rf.readline().strip()
+                if first_line:
+                    import contextlib as _ctx
+                    with _ctx.suppress(Exception):
+                        first_output = _j.loads(first_line).get("output")
+            if first_output is not None:
                 sample_render = Panel(
-                    JSON.from_data(first) if isinstance(first, dict) else str(first),
+                    JSON.from_data(first_output)
+                    if isinstance(first_output, dict)
+                    else str(first_output),
                     title="LLM Output",
                     border_style="magenta",
                 )
                 console.print(sample_render)
-                console.print(f"[green]Run complete[/green] -> {path}")
+            try:
+                completion_text = (
+                    f"[bold green]Run Completed[/bold green]\n"
+                    f"[cyan]Run Dir:[/cyan] {path}\n"
+                    f"[cyan]Manifest:[/cyan] {manifest_path}\n"
+                    f"[cyan]Results:[/cyan] {results_path}"
+                )
+                completion_panel = Panel(
+                    completion_text,
+                    title="completed",
+                    border_style="green",
+                )
+                console.print(completion_panel)
+            except Exception as _panel_exc:  # pragma: no cover
+                _logging.debug("Failed rendering completion panel: %s", _panel_exc)
             return
         except Exception as _summary_exc:  # pragma: no cover
             _logging.debug("Failed enhanced run summary: %s", _summary_exc)

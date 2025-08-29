@@ -10,9 +10,9 @@ from typing import Any
 from dotenv import load_dotenv
 
 try:  # pragma: no cover
-    import yaml  # type: ignore
+    import yaml
 except Exception:  # pragma: no cover
-    yaml = None  # type: ignore
+    yaml = None  # type: ignore[assignment]
 
 from app.utils.logging import setup_logging
 

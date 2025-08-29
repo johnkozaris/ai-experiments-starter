@@ -13,6 +13,8 @@ app = typer.Typer(help="Experiment CLI root")
 def init_callback() -> None:
     """Bootstrap environment (dotenv + config + logging) before any command."""
     bootstrap()
+
+
 app.add_typer(batch_app, name="batch")
 app.add_typer(eval_app, name="eval")
 

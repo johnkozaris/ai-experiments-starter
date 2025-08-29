@@ -8,49 +8,71 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from app.utils.io import read_jsonl
+app = typer.Typer(
+    help=(
+        "Evaluate a run using new artifact layout: experiment_manifest.json, "
+        "experiment_results.jsonl, recordN/result.json"
+    )
+)
 
-app = typer.Typer(help="Evaluate a completed run directory (compute basic metrics)")
+
+def _iter_results(run_dir: Path):
+    """Yield per-record slim results.
+
+    Priority order:
+    1. experiment_results.jsonl (stream aggregate)
+    2. Fallback: iterate record*/result.json (if JSONL missing / partial)
+    """
+    jsonl_path = run_dir / "experiment_results.jsonl"
+    if jsonl_path.exists():
+        import logging as _logging
+
+        for line in jsonl_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                yield json.loads(line)
+            except Exception as _exc:  # pragma: no cover
+                _logging.debug("Skipping malformed aggregate line: %s", _exc)
+                continue
+        return
+    # Fallback scan (robust to partial writes / manual edits)
+    import logging as _logging
+
+    for rec_dir in sorted(run_dir.glob("record*/result.json")):
+        try:
+            data = json.loads(rec_dir.read_text(encoding="utf-8"))
+            yield data
+        except Exception as _exc:  # pragma: no cover
+            _logging.debug("Skipping malformed record result: %s", _exc)
+            continue
 
 
 @app.command()
 def run(run_dir: str) -> None:
     run_dir_path = Path(run_dir)
-    # Prefer consolidated result.json; fallback to legacy results.jsonl
-    result_json_path = run_dir_path / "result.json"
-    legacy_path = run_dir_path / "results.jsonl"
-    records_iter = []
-    if result_json_path.exists():
-        try:
-            data = json.loads(result_json_path.read_text(encoding="utf-8"))
-            records_iter = data.get("records", []) if isinstance(data, dict) else []
-        except Exception as exc:  # pragma: no cover
-            raise typer.BadParameter(f"Failed reading result.json: {exc}") from exc
-    elif legacy_path.exists():
-        records_iter = list(read_jsonl(legacy_path))
-    else:  # pragma: no cover
-        raise typer.BadParameter(
-            f"No result.json or results.jsonl found in {run_dir_path}"
-        )
-
+    if not run_dir_path.exists():  # pragma: no cover
+        raise typer.BadParameter(f"Run directory not found: {run_dir_path}")
     total = 0
     errors = 0
     validated_success = 0
     field_presence: dict[str, int] = Counter()
     field_value_counts: dict[str, Counter] = defaultdict(Counter)
 
-    for rec in records_iter:
+    for rec in _iter_results(run_dir_path):
         total += 1
-        out = rec.get("output", {})
-        if "error" in out:
+        out = rec.get("output", {}) if isinstance(rec, dict) else {}
+        if isinstance(out, dict) and "error" in out:
             errors += 1
             continue
         if rec.get("validated"):
             validated_success += 1
-            for k, v in out.items():
-                if v not in (None, [], ""):
-                    field_presence[k] += 1
-                    field_value_counts[k][type(v).__name__] += 1
+            if isinstance(out, dict):
+                for k, v in out.items():
+                    if v not in (None, [], ""):
+                        field_presence[k] += 1
+                        field_value_counts[k][type(v).__name__] += 1
 
     metrics = {
         "total": total,
@@ -66,22 +88,13 @@ def run(run_dir: str) -> None:
         },
     }
 
-    # Attach evaluation into existing result.json if present (non-destructive augment)
-    if result_json_path.exists():
-        try:
-            data = json.loads(result_json_path.read_text(encoding="utf-8"))
-            data["evaluation"] = metrics
-            result_json_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        except Exception as _augment_exc:  # pragma: no cover
-            import logging as _logging
-            _logging.debug("Failed to augment result.json with evaluation: %s", _augment_exc)
-    else:  # legacy path fallback write
-        (run_dir_path / "metrics.json").write_text(
-            json.dumps(metrics, indent=2), encoding="utf-8"
-        )
+    # Write dedicated evaluation artifact (non-destructive)
+    (run_dir_path / "evaluation.json").write_text(
+        json.dumps(metrics, indent=2), encoding="utf-8"
+    )
 
     console = Console()
-    table = Table(title="Run Metrics")
+    table = Table(title="Run Evaluation")
     table.add_column("Metric")
     table.add_column("Value")
     table.add_row("total", str(metrics["total"]))

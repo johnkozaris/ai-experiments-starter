@@ -7,4 +7,4 @@ This module is retained only to avoid import errors for stale references; it wil
 removed in a future cleanup once downstream code is updated.
 """
 
-__all__ = []
+__all__: list[str] = []
