@@ -1,6 +1,6 @@
 # Experiment Harness (OpenAI & Azure OpenAI)
 
-This project is an easy and  ready to go harness to define (datasets, prompts, instructions), run(OpenAI AzureOpenAI), chain and evaluate LLM experiments.
+Lightweight, reproducible harness to define datasets + prompts, run (OpenAI / Azure) experiments (structured or free‑form), chain them, evaluate results, and track cost & quality metrics. Uses OpenAI Responses API semantics (multi‑role messages ) with optional Pydantic schema enforcement.
 
 ## 1. Install & Env
 
@@ -31,7 +31,17 @@ uv run exp run acq_yaml --override temperature=0.2 --override max_output_tokens=
 uv run exp chain run acq_yaml investor_followup   # chain: outputs of acq_yaml feed investor_followup
 ```
 
-While running you see panels with the raw response (truncated). After completion a summary panel shows tokens, latency, and a sample output.
+While running you see panels with the raw response (truncated). After completion a summary panel shows tokens, latency, validation counts, cost estimate, and a sample output.
+
+Key runtime features:
+
+- Multi‑role prompts: `system`, optional `developer`, `user` plus appended instruction snippets (sent via Responses API `instructions` field).
+- Jinja templating for all prompt types (system / developer / user / instructions).
+- Structured output mode (Pydantic) with validation + parse fallback tracking.
+- Cost estimation: per‑run estimated USD costs via central pricing table (`app.utils.pricing`).
+- Token + latency aggregation with rolling analytics per experiment.
+- Chaining: outputs of prior experiment injected as dataset records downstream.
+- Deterministic record selection and per‑run overrides of scalar spec fields.
 
 ## 3. Experiment Mental  Flow
 
@@ -51,7 +61,7 @@ flowchart LR
   Runner --> Manifest[experiment_manifest.json]
   Runner --> Agg[experiment_results.jsonl]
   Runner --> RecDir[record*/result.json + input_manifest.json]
-  Runner --> Logs[logs/llm_requests.jsonl]
+  Runner --> Logs[logs/llm_requests.log]
   Runner --> PromptsSnap[prompts_used.json]
   Agg --> Summary[runs_summary.jsonl]
   Summary --> Analytics[analytics.json]
@@ -113,7 +123,7 @@ name: acq_yaml
 description: Structured acquisition extraction
 model: gpt-4o-mini
 provider: azure
-schema_model: app.schemas.extraction.AcquisitionExtraction
+schema_model: experiments.acq_yaml.schemas.extraction.AcquisitionExtraction
 system_prompt: prompts/system/extraction.txt
 user_prompt: prompts/user/extraction.jinja
 instructions:
@@ -145,7 +155,23 @@ def get_experiment() -> ExperimentSpec:
     )
 ```
 
-## 4. Structured vs Free‑form output
+## 4. Multi‑Role Prompts & Instructions
+
+Each experiment declares:
+
+| Field | Purpose |
+|-------|---------|
+| system_prompt | High‑level system directives (Jinja supported) |
+| developer_prompt | Optional additional guidance role (developer) |
+| user_prompt | Core task instructions referencing dataset variables (Jinja) |
+| instructions | List of snippet paths concatenated & passed as `instructions` |
+
+Rendering context always includes: dataset row keys, plus `record` (alias to row) and `upstream` (previous experiment's output dict when chaining). Non‑fatal warnings (skipped for chained runs) highlight:
+
+- Declared `expected_variables` not used in any template.
+- Template variables missing from dataset rows.
+
+## 5. Structured vs Free‑form output
 
 If `schema_model` is set we attempt structured parsing (Pydantic) with fallback to standard text if the API rejects the schema; output is validated post‑hoc. Otherwise the raw text is returned.
 
@@ -166,25 +192,29 @@ Per-record slim result shape (`recordN/result.json`):
 }
 ```
 
-## 5. Outputs
+## 6. Cost Estimation
+
+Run manifests include `estimated_cost` with `input`, `output`, `total` cost fields; `runs_summary.jsonl` lines include `est_cost_total`. Pricing is per‑million tokens (see `app.utils.pricing`). Unknown models => nulls.
+
+## 7. Outputs
 
 Each run directory: `src/output/<experiment>/<timestamp>/` contains:
 
 1. `experiment_manifest.json` – top-level object with:
 
-* `manifest`: config snapshot (name, model, provider, schema, record_selection, token_usage, avg_latency)
-* `metrics`: summarized counts (records, validations, token totals, success_pct, refusals, parse_fallbacks, latency distribution)
+- `manifest`: config snapshot (name, model, provider, schema, record_selection, token_usage, avg_latency)
+- `metrics`: summarized counts (records, validations, token totals, success_pct, refusals, parse_fallbacks, latency distribution)
 
 1. `experiment_results.jsonl` – newline-delimited slim per-record result objects (no original input to keep small).
 
 1. `recordN/` folders – one per processed dataset record (1-based index):
 
-* `input_manifest.json` (index + original input)
-* `result.json` (slim result for that record – mirrors lines in the aggregate JSONL)
+- `input_manifest.json` (index + original input)
+- `result.json` (slim result for that record – mirrors lines in the aggregate JSONL)
 
 1. `prompts_used.json` – snapshot of system prompt, user template source, and concatenated instructions used for reproducibility.
 
-1. `logs/llm_requests.jsonl` – per API call: raw_request / raw_response / structured parse events (sanitized tokens & timing).
+1. `logs/llm_requests.log` – per API call: plain-text blocks containing raw messages, instructions (if any), and output (plus structured_output when present). No metric metadata.
 
 1. `runs_summary.jsonl` – (experiment root) one line per run summarizing tokens, success pct, latency, run_dir.
 
@@ -196,14 +226,49 @@ Each run directory: `src/output/<experiment>/<timestamp>/` contains:
 
 Removed: previous monolithic `result.json` (merged manifest+records) and legacy `results.jsonl`. Fallback readers eliminated except for dependency resolution scanning `experiment_results.jsonl` then `record*/result.json`.
 
-## 7. Overrides
+## 8. Overrides
 
 Repeat `--override key=value` to temporarily change scalar spec fields (e.g. temperature, max_output_tokens). These are captured inside `manifest.config` for the run.
 
-## 8. Evaluation
+## 9. Evaluation
 
 ```powershell
 uv run exp eval run src/output/acq_yaml/<timestamp>
 ```
 
 Creates `evaluation.json` alongside other artifacts (field coverage, validation rate, error rate). It does not mutate existing artifacts.
+
+## 10. Architecture
+
+Layers:
+
+- Domain (`app.domain.models`): Pure Pydantic models (specs, resolved experiment, prompts snapshot, record/result, metrics, analytics). No I/O.
+- Infrastructure (`app.infrastructure.*`): Adapters & utilities (LLM client, cost estimation, dataset loading, artifact persistence, logging setup, templating engine).
+- Services (`app.services.*`): Orchestration logic (resolver, spec loader, prompt builder, execution loop, runner, analytics aggregation, variable analysis, selection parsing).
+- CLI (`app.cli`): Typer commands delegating to services (`list`, `show`, `run`, `chain run`, `eval run`).
+
+
+
+Legacy modules remain for reference; new development should target the `app` stack.
+
+## 11. Model Validation & Safety Nets
+
+- Model names validated against `MODEL_NAMES` (pricing registry) early.
+- Structured outputs: Pydantic validation errors captured per record.
+- `parse_fallback` flag recorded when schema parse not honoured by provider.
+- Exactly one request per record (no hidden retries) for deterministic accounting.
+
+## 12. Analytics Artifacts
+
+Each run produces:
+
+- `metrics.json` – point-in-time metrics for that run (tokens, latencies, refusals, parse fallbacks, cost estimate).
+- `runs_summary.jsonl` – append-only timeline (one line per run) for the experiment.
+- `analytics.json` – recomputed longitudinal aggregates across all runs of the experiment.
+
+
+## 13. Future Ideas
+
+- Retry / backoff strategy (currently none).
+- Configurable rate pacing (currently fixed 2s).
+- Dynamic pricing source sync.

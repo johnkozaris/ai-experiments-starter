@@ -16,7 +16,7 @@ logs/
 .ipynb_checkpoints/
 
 # Runs / Output (ignore transient logs & temp files under new src/output)
-src/output/**
+output/**
 # Cache / tooling
 .mypy_cache/
 .ruff_cache/

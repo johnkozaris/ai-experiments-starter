@@ -45,7 +45,7 @@ dev = [
 [project.scripts]
 # Consolidated CLI naming: primary command `exp` with subcommands, plus optional direct helpers.
 exp = "app.cli:app"                 # Main CLI root
-exp-clean = "app.tools.clean:main"  # Clean caches & __pycache__
+clean = "app.tools.clean:main"  # Clean caches & __pycache__
 
 # Developer convenience commands (non-console-script shell commands) moved to [tool.uv.scripts]
 
@@ -85,7 +85,7 @@ dev = [
 # Project name uses a hyphen (experiments-starter) while the package directory is `experiments`.
 # Without this, hatch can't auto-detect and the editable build fails.
 [tool.hatch.build.targets.wheel]
-# Use explicit src layout package paths so both top-level packages are installed.
+# Use explicit src layout package paths so both top-level packages are installed (no duplicates).
 packages = ["src/app", "src/experiments"]
 
 [tool.hatch.build.targets.sdist]

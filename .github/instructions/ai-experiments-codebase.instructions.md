@@ -1,158 +1,3 @@
----
-applyTo: '**'
----
-# Project Instruction Guide for LLM Assistants
-
-You are assisting on the **Experiment Harness** project. You define, run, chain, and evaluate LLM experiments (OpenAI & Azure OpenAI) producing structured (Pydantic) or free-form outputs. Follow these instructions exactly when generating or modifying code.
-
-## 1. Tech Stack & Conventions
-
-- Python 3.13 (manage with `uv`).
-- Packages: `app` (runtime) and `experiments` (registry) under `src/` (configured in `pyproject.toml`).
-- Core libs: typer, jinja2, pydantic, openai (Azure/OpenAI), orjson, rich, tqdm, pyyaml, dotenv.
-- Style: Ruff for format+lint
-- JSONL via orjson; prompts plain text (system/instructions) + Jinja for user prompts.
-- Multi-artifact run layout: `experiment_manifest.json`, `experiment_results.jsonl`, per-record `recordN/` folders (each with `input_manifest.json` + `result.json`), plus summary & analytics files.
-
-### Add / Modify Code Guidelines
-
-- Put reusable runtime code in `src/app/*` (clients, utils, experiments, pipelines, schemas, tools).
-- Put experiment definitions + prompts only in `src/experiments/<name>/`.
-- Avoid circular imports (utilities live in `app.utils`).
-- Keep functions small, typed, side-effect minimal.
-- Preserve existing public APIs; extend carefully; keep artifact schema stable.
-
-## 2. Folder / Module Overview
-
-```text
-src/
-  app/
-    cli.py                # Root CLI (list/show/run/chain + eval)
-    runtime.py            # .env + config bootstrap
-    clients/llm_client.py # Unified OpenAI/Azure client + structured parsing
-    experiments/
-      definitions.py      # ExperimentSpec / DependencySpec dataclasses
-      loader.py           # Discover + load specs (YAML or Python)
-      runner.py           # Execution loop, templating, API calls, artifact build
-    pipelines/
-      run_batch.py        # Ad-hoc (no registry) batch command
-      evaluate_run.py     # Post-run evaluation (validation & field metrics)
-    schemas/               # these are schemas for llm structured outputs based on the way openai expects a schemas to avoid invalid json schema reports for structured outputs
-      extraction.py       # schema for  llm structured outputs
-    tools/clean.py        # Cache cleanup (exp-clean)
-    utils/
-      io.py               # JSONL helpers, run dir creation
-      logging.py          # Logging setup (rich + file)
-      schema.py           # Model import + JSON schema coercion
-  experiments/            # New experiments go under here in their own subfolder look at an example experiment for the structure
-    acq_yaml/             # example acq experiment
-    investor_followup/    # example investor experiment n acq_yaml + transform
-    python_extraction/    # example  extraction experiment
-  datasets/
-    samples.jsonl         # Example dataset other datasets go to raw if pure and processed if we manipulate them
-  configs/
-    default.yaml          # Optional runtime config
-  output/                 # Run artifacts (gitignored)
-```
-Every experiment subfolder
-Place new:
-- Generic helpers -> `src/app/utils/`.
-- New pipeline (new CLI group) -> `src/app/pipelines/` then register Typer sub-app in `app/cli.py`.
-- Experiments -> `src/experiments/<exp_name>/`.
-
-## 3. Experiment Lifecycle
-
-1. You define an `ExperimentSpec` (YAML `experiment.yaml` or Python `experiment.py`).
-2. CLI loads all specs (`loader.load_all_experiments`).
-3. Resolution yields `ResolvedExperiment` (paths, dataset, prompts, dependency chain).
-4. Runner renders user prompt via Jinja with row variables + appended instruction text.
-5. `LLMClient.generate` executes API call:
-   - If `schema_model`: try Responses parse with Pydantic model; fallback to manual JSON schema.
-   - Else: free-form text response.
-6. Collect per-record outputs (validation, usage, latency) streaming; write per-record `recordN/result.json`.
-7. Append slim result lines to `experiment_results.jsonl` (one JSON object per record).
-8. Write `experiment_manifest.json` containing manifest + metrics (no embedded records).
-9. Append summary line to `runs_summary.jsonl`; recompute `analytics.json`.
-10. Optional evaluation writes `evaluation.json` (does NOT mutate existing artifacts).
-
-Dependency chaining: For each `DependencySpec`, load latest upstream run, select path (dot traversal), optional transform builds new dataset list for downstream experiment.
-
-## 4. Output Artifacts
-
-- `src/output/<exp>/<ts>/experiment_manifest.json` – run config + metrics.
-- `src/output/<exp>/<ts>/experiment_results.jsonl` – slim per-record outputs.
-- `src/output/<exp>/<ts>/recordN/` – per-record artifacts (`input_manifest.json`, `result.json`).
-- `src/output/<exp>/<ts>/prompts_used.json` – prompts snapshot.
-- `src/output/<exp>/<ts>/logs/llm_requests.jsonl` – per-request logs.
-- `src/output/<exp>/runs_summary.jsonl` – one line per run (lives at experiment root).
-- `src/output/<exp>/analytics.json` – aggregated stats (tokens, latency, success rate, rolling window).
-- `src/output/<exp>/latest.txt` – latest timestamp pointer.
-- `src/output/<exp>/<ts>/evaluation.json` – evaluation metrics (created by eval pipeline).
-
-Legacy artifacts `result.json` / `results.jsonl` should not be written; code may still read them only if explicitly implementing migration logic (avoid adding new dependencies on them).
-
-## 5. CLI & Scripts
-
-Root command: `exp`.
-
-Subcommands:
-- `exp list`
-- `exp show <name>`
-- `exp run <name> [--override k=v]* [--limit N] [--dry-run]`
-- `exp chain run <a> <b> ...`
-- `exp eval run <run_dir>`
-
-Ad-hoc (no registry) batch: `uv run python -m app.pipelines.run_batch run ...`
-
-Overrides: `--override temperature=0.2 --override max_output_tokens=256` etc. Only scalar fields. Captured in manifest snapshot.
-
-Helper commands (add to uv scripts or run directly):
-```bash
-uv run exp list
-uv run exp run acq_yaml --limit 3
-uv run exp chain run acq_yaml investor_followup
-uv run exp eval run src/output/acq_yaml/{timestamp}
-uv run ruff format .
-uv run ruff check .
-```
-
-## 6. Adding a New Experiment
-
-1. Create folder `src/experiments/<name>/`.
-2. Add prompts:
-   - `prompts/system/<file>.txt`
-   - `prompts/user/<file>.jinja` (use placeholders for dataset keys)
-   - Optional `prompts/instructions/*.txt` snippets.
-3. Add or reference dataset (JSONL) relative to experiment directory (or rely on dependencies).
-4. Add `experiment.yaml` OR `experiment.py` returning `ExperimentSpec` (`get_experiment`).
-5. (Optional) Add transforms under `<exp>/transforms/*.py` with `fn(records, config)`. if transformations are specific to the dataset if you are creating a reusable transformation its better to put it under app utils or split into reusable and specific parts and put it under both
-6. After all coding is completed Validate: `uv run exp show <name>` then run: `uv run exp run <name>`.
-
-## 7. Coding Style & Quality
-
-- Run format/lint before commit.
-- Strict typing: avoid untyped public functions; use generics where helpful.
-- Fail fast with clear exceptions; avoid silent `pass`.
-- No network I/O in transforms (pure data reshaping only).
-- Keep runner output schema stable.
-- Write modern 2025 python 3.13
-- use the packages and helpers provided in pyproject.toml to help you code easier. From the packages always use modern way of implementing them.
-
-## 8. Structured Output Extension
-
-Preferred patterns depend on reuse scope:
-
-1. Reusable / shared schema: create Pydantic model file in `src/app/schemas/` and reference via `schema_model: app.schemas.<module>.<Model>`.
-2. Experiment-specific schema (only used by a single experiment): place under `src/experiments/<exp_name>/schemas/` and reference via `schema_model: experiments.<exp_name>.schemas.<module>.<Model>`.
-3. Runner imports dynamically (no experiment-specific logic) and builds JSON schema + attempts parse API.
-4. Validation errors captured per record (`validated` false + `validation_errors`).
-
-## 9. Dependency Dataset Transforms
-
-Selection: `select` traverses dot path from each record root (e.g. `output`, `output.field`). Lists of primitives become `{"value": item}` objects.
-
-Transform forms:
-```yaml
 depends_on:
   - experiment: acq_yaml
     select: output
@@ -161,43 +6,134 @@ depends_on:
       config:
         min_items: 1
 ```
-Function signature: `def build_dataset(records: list[dict[str, Any]], config: dict|None) -> list[dict]`.
+# Experiment Harness – Engineering Guide
 
-## 10. Environment & Config
+Authoritative guide for contributing to the Experiment Harness. Follow exactly. All runtime logic uses a layered architecture under `src/app/` with experiment registry under `src/experiments/`.
 
-- `.env` loaded at bootstrap (OPENAI_API_KEY, AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_VERSION, etc.).
-- Optional runtime YAML config: `src/configs/default.yaml` (override path via `EXPERIMENTS_CONFIG`).
-- Per-experiment Azure overrides: `azure_api_version`, `azure_endpoint` fields.
+## 1. Tech Stack
+- Python 3.13 (managed via `uv`)
+- Key libs: typer, rich, jinja2, pydantic, openai (incl. Azure), orjson, tqdm, pyyaml, python-dotenv
+- Lint/format: Ruff; Type checking: mypy (strict where practical)
+- No notebooks required for core runtime; experiments are file based
 
-## 11. When You Generate Code (MANDATORY RULES)
+## 2. Layered Architecture
+| Layer | Namespace | Responsibilities |
+|-------|-----------|------------------|
+| Domain | `app.domain.models` | Pure Pydantic contracts: specs, resolved experiment, prompts snapshot, record result, metrics, analytics. No I/O or side-effects. |
+| Infrastructure | `app.infrastructure.*` | LLM adapters (OpenAI/Azure), client facade, cost estimation, dataset loading, artifact persistence, templating (Jinja), logging helpers. |
+| Services | `app.services.*` | Orchestration: spec loading, resolver, prompt building, variable analysis, record selection parsing, execution loop, runner, per-experiment analytics, global analytics. |
+| CLI | `app.cli` | Typer commands: list, show, run, chain run, eval run. |
 
+Principles:
+- Domain layer is stability boundary; other layers depend inward only.
+- Services are thin coordinators delegating to infra utilities.
+- Adapters isolate provider-specific behaviors and normalize responses.
+
+## 3. Core Concepts
+- Experiment Spec (`ExperimentSpec`): declarative config (model, provider, prompts, dataset path, schema model path, dependencies, variables, selection, params).
+- Resolved Experiment (`ResolvedExperiment`): spec + absolute paths + loaded dataset + optional schema snapshot (`model_schema_json`) + imported schema class.
+- Record Execution: exactly one LLM call per selected record (no hidden retries) for deterministic cost metrics.
+- Structured Output: if schema provided we request structured parse; fallback to plain text flagged via `parse_fallback` at record level.
+
+## 4. Prompts & Templates
+- Multi-role messages: system, optional developer, user.
+- Instruction snippets concatenated and passed via Responses `instructions` parameter.
+- All prompt files treated as Jinja templates; context includes dataset row keys plus `record` (row alias) and (when chaining) `upstream_output`.
+- Variable analysis warns (non-fatal) about missing or unused declared variables (skipped for chained runs).
+
+## 5. Datasets & Selection
+- Supported dataset files: `.jsonl` or `.json` (list of objects).
+- Selection string grammar: ranges & commas (e.g. `1-5,10,12-14`) -> 1-based incoming, converted to 0-based indices.
+- When chaining and downstream spec omits `record_selection`, all upstream records are processed.
+
+## 6. Chaining & Dependencies
+- Declare dependencies via `depends_on` list; each entry selects a path from upstream record outputs (dot traversal from root of per-record result object: typically `output` or nested `output.field`).
+- Selected value rules:
+  * Dict -> single derived record
+  * List[primitive] -> each primitive wrapped as `{ "value": primitive }`
+  * List[dict] -> each dict as record
+  * Primitive -> `{ "value": primitive }`
+- Optional transform function `experiments.<exp>.transforms.<module>:<fn>` returning a new list of records (pure, deterministic, no network I/O).
+- Injected records override any local dataset path for the downstream experiment.
+
+## 7. Execution & Logging
+- Each selected record => single `LLMClient.generate` call.
+- Per-request plain-text log: `logs/llm_requests.txt` containing a block with: record index, model/provider, each message (role + content), instructions (if present), output text, and structured_output JSON (if present). No metrics or token counts in this log.
+- Pacing: Minimal necessary (no artificial sleeps unless explicitly added for rate limiting in future enhancements).
+
+## 8. Artifacts Layout
+Per run directory: `src/output/<experiment>/<timestamp>/`
+1. `experiment_manifest.json` – run metadata (config snapshot + metrics + cost estimate).
+2. `experiment_results.jsonl` – newline-delimited slim objects: `{index, output_text, structured_output}`.
+3. `recordN/input_manifest.json` – original input row (1-based N).
+4. `recordN/result.json` – slim per-record result (mirrors JSONL line for that index).
+5. `prompts_used.json` – snapshot: system, user template, developer (optional), instructions list.
+6. `logs/llm_requests.txt` – raw request/response blocks.
+7. `runs_summary.jsonl` – append-only per-run summary (tokens, latency, success pct, refusals, parse fallbacks, cost).
+8. `analytics.json` – aggregated longitudinal experiment analytics.
+9. `evaluation.json` – produced by eval pipeline (post-run, additive only).
+10. `latest.txt` – pointer to latest run timestamp.
+11. `metrics.json` – per-run snapshot (duplicate key metrics for quick inspection).
+
+## 9. Cost & Pricing
+- Pricing registry in `app.infrastructure.cost` (and/or `app.utils.pricing` legacy) provides per‑million token input/output rates.
+- Runner estimates cost with prompt/completion token totals (per run) and writes into manifest + run summary (`est_cost_total`). Unknown models => null costs.
+
+## 10. Structured Output
+- `schema_model` dotted path imported dynamically; JSON schema snapshot stored as `model_schema_json` on resolved experiment object (for reproducibility, optional embed in manifest if needed in future).
+- Record contains both `output_text` (raw text) and `structured_output` (dict) when validation succeeds; if refused or fallback occurs, `structured_output` may be null.
+
+## 11. CLI Commands (Typer)
+- `exp list` – list experiment names.
+- `exp show <name>` – show spec & prompt paths.
+- `exp run <name> [--limit N] [--dry-run] [--override key=value]*` – run an experiment.
+- `exp chain run <a> <b> ...` – sequentially chain experiments (outputs feed next inputs).
+- `exp eval run <run_dir>` – compute evaluation metrics into `evaluation.json`.
+
+Overrides: scalar fields only (temperature, max_output_tokens, etc.). They are recorded in the run manifest parameters.
+
+## 12. Evaluation
+- Reads `experiment_results.jsonl` (or per-record `result.json` as fallback) to compute validation stats and (optionally) field coverage for structured outputs.
+- Writes `evaluation.json` (never mutates existing artifacts).
+
+## 13. Analytics
+- `runs_summary.jsonl` appended each run (one line per run).
+- `metrics.json` written inside each run directory (single-run metrics convenience view).
+- `analytics.json` rebuilt fully each run (longitudinal per‑experiment aggregates: tokens, success, latencies, refusals, parse fallbacks, extremes, cost aggregates, average cost).
+
+## 14. Coding Standards
 You MUST:
-- Use relative imports inside project (e.g. `from app.utils.io import read_jsonl`) and imports go to the top of the file.
-- Use modern python 3.13
-- Prefer to use doc comments to document methods or classes instead of inline comments
-- Never put experiment specs or prompts under `src/app`.
-- Follow current multi-artifact pattern (manifest + aggregate JSONL + per-record folders). Do not reintroduce monolithic `result.json` writes.
-- Support both providers; avoid hardcoding endpoints (use env + spec overrides).
-- Add Typer sub-apps for new CLI groups and register in `app/cli.py`.
-- Keep transforms deterministic / side-effect free.
-- Update this instructions file if you add user-facing features.
-- Re-use implementation found in the codebase instead of creating new one.
-- When you need to create new implementation make sure there are not parallel code implementations or code paths.
+- Use relative imports within project namespaces.
+- Keep functions small, typed, side-effect minimal.
+- Avoid silent failure (log at debug if suppressing, otherwise raise).
+- Maintain artifact schemas; any change requires explicit coordinated update here.
+- Add Typer subcommands in `app.cli` for new CLI features.
+- Keep transforms deterministic & pure.
+- Update this file when adding user-visible behaviors.
 
 You MUST NOT:
-- Commit secrets.
+- Commit secrets or credentials.
 - Introduce blocking sleeps in hot loops.
-- Hardcode absolute filesystem paths.
-- Change existing artifact field names without explicit migration handling.
+- Hardcode absolute paths.
+- Add duplicate logic present in another layer (prefer reuse).
+- Expand per-record artifact beyond defined slim shape without justification.
 
-## 13. Do / Don't
+## 15. Adding a New Experiment
+1. Create `src/experiments/<name>/`.
+2. Add prompts:
+   - `prompts/system/<file>.txt`
+   - `prompts/user/<file>.jinja`
+   - Optional: `prompts/developer/<file>.txt`, `prompts/instructions/*.txt`.
+3. Add dataset file (relative path) or rely on dependencies.
+4. Add `experiment.yaml` (or a Python `experiment.py` exposing `get_experiment()` returning `ExperimentSpec`).
+5. (Optional) Add transforms under `transforms/` (pure functions).
+6. Validate: `uv run exp show <name>` then run: `uv run exp run <name>`.
 
-Do:
-- Reuse existing utilities before adding new ones.
-- Keep schemas minimal, optional fields for uncertain extractions.
-- Log debug info instead of printing in library code.
+## 16. Structured Output Patterns
+- Shared schema: place model in `experiments/<name>/schemas/` unless intended for broad reuse.
+- Experiment-specific: place in `experiments/<name>/schemas/`.
+- Validation errors cause `structured_output` to be null (future: store errors if needed).
 
-Don't:
-- Duplicate logic across runner + batch pipeline.
-- Return partial artifacts (always complete JSON objects).
-
+## 17. Environment & Config
+- `.env` for API keys & Azure endpoint/version.
+---
