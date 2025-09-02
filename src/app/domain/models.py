@@ -46,7 +46,11 @@ class DependencySpec(BaseModel):
 
 
 class ExperimentSpec(BaseModel):
-    """User-authored configuration (YAML) for an experiment run."""
+    """User-authored configuration (YAML) for an experiment run.
+
+    system_prompt now optional - when omitted only the user (and optional developer) prompt
+    will be sent. This enables simpler experiments relying solely on a user template.
+    """
 
     name: str
     description: str | None = None
@@ -58,7 +62,7 @@ class ExperimentSpec(BaseModel):
     presence_penalty: float | None = None
     frequency_penalty: float | None = None
     logprobs: int | None = None
-    system_prompt: str
+    system_prompt: str | None = None
     user_prompt: str
     developer_prompt: str | None = None
     instructions: list[str] | str | None = None
@@ -78,7 +82,7 @@ class ResolvedExperiment(BaseModel):
 
     spec: ExperimentSpec
     root_dir: str
-    system_prompt_path: str
+    system_prompt_path: str | None = None
     user_prompt_path: str
     developer_prompt_path: str | None = None
     instruction_paths: list[str] = Field(default_factory=list)

@@ -57,7 +57,7 @@ def resolve_experiment(name: str, root: Path) -> ResolvedExperiment:
         spec = py_spec
     else:
         raise ValueError(f"No experiment.yaml or experiment.py found in {dir_path}")
-    system = (dir_path / spec.system_prompt).resolve()
+    system = (dir_path / spec.system_prompt).resolve() if spec.system_prompt else None
     user = (dir_path / spec.user_prompt).resolve()
     developer = (dir_path / spec.developer_prompt).resolve() if spec.developer_prompt else None
     instruction_paths: list[str] = []
@@ -83,12 +83,12 @@ def resolve_experiment(name: str, root: Path) -> ResolvedExperiment:
     return ResolvedExperiment(
         spec=spec,
         root_dir=str(dir_path),
-        system_prompt_path=str(system),
+        system_prompt_path=(str(system) if system else None),
         user_prompt_path=str(user),
         developer_prompt_path=str(developer) if developer else None,
         instruction_paths=instruction_paths,
         dataset_records=dataset_records,
         schema_model_path=spec.schema_model,
-    model_schema_json=schema_json,
+        model_schema_json=schema_json,
         schema_model_cls=schema_cls,
     )

@@ -23,6 +23,7 @@ output/**
 .pytest_cache/
 .cache/
 src/datasets/raw/
+# src/experiments/**  
 # OS
 .DS_Store
 Thumbs.db

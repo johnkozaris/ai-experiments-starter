@@ -1,7 +1,10 @@
 """Execution service: iterate records, call LLM, produce RecordResult list + metrics."""
 from __future__ import annotations
 
+import json
 import logging
+import os
+import time
 from pathlib import Path
 from statistics import quantiles
 from typing import Any
@@ -25,15 +28,19 @@ def run_execution(
     model: str,
     records: list[dict[str, Any]],
     selected_indices: list[int],
-    system_path: Path,
+    system_path: Path | None,
     user_path: Path,
     developer_path: Path | None,
     instruction_paths: list[Path],
     dry_run: bool,
     model_params: dict[str, Any] | None = None,
     log_path: Path | None = None,
-        schema_json: dict[str, Any] | None = None,
-        schema_model: Any | None = None,
+    schema_json: dict[str, Any] | None = None,
+    schema_model: Any | None = None,  # deprecated; kept for signature compatibility
+    run_dir: Path | None = None,
+    fail_fast: bool = True,
+    throttle_ms: int | None = None,
+    simulate_structured_output_on_dry_run: bool = True,
 ) -> ExecutionResult:
     model_params = model_params or {}
     results: list[RecordResult] = []
@@ -50,7 +57,14 @@ def run_execution(
     else:
         task_id = None
 
-    for idx in selected_indices:
+    throttle = (
+        throttle_ms
+        if throttle_ms is not None
+        else int(os.getenv("EXPERIMENT_THROTTLE_MS", "0") or 0)
+    )
+    for i, idx in enumerate(selected_indices):
+        if i > 0 and throttle > 0:
+            time.sleep(throttle / 1000.0)
         row = records[idx]
         ctx = dict(row)
         ctx.setdefault("record", row)
@@ -62,16 +76,83 @@ def run_execution(
         )
         instructions = render_instructions(instruction_paths, ctx)
         if dry_run or client is None:
-            result = RecordResult(index=idx, input=row, output_text="(dry-run)", validated=False)
             latency_ms = 0.0
+            structured_sample: dict[str, Any] | None = None
+            if simulate_structured_output_on_dry_run and schema_json:
+                def _sample(schema: Any) -> Any:  # very small placeholder generator
+                    if not isinstance(schema, dict):
+                        return None
+                    t = schema.get("type")
+                    if t == "object":
+                        props = schema.get("properties", {})
+                        out: dict[str, Any] = {}
+                        for k, v in props.items():
+                            out[k] = _sample(v)
+                        return out
+                    if t == "array":
+                        return []
+                    if t == "string":
+                        return "DRY_RUN"
+                    if t == "number" or t == "integer":
+                        return 0
+                    if t == "boolean":
+                        return False
+                    if (
+                        "anyOf" in schema
+                        and isinstance(schema["anyOf"], list)
+                        and schema["anyOf"]
+                    ):
+                        return _sample(schema["anyOf"][0])
+                    return None
+
+                structured_sample = _sample(schema_json)
+            result = RecordResult(
+                index=idx,
+                input=row,
+                output_text="(dry-run)",
+                structured_output=structured_sample,
+                validated=True,
+            )
+            validated += 1
         else:
+            # ---------------- Raw payload intent (pre-SDK) ---------------- #
+            if run_dir is not None:
+                try:
+                    req_dir = run_dir / "logs" / "requests"
+                    req_dir.mkdir(parents=True, exist_ok=True)
+                    # Build payload as the SDK call kwargs (approximate HTTP body)
+                    payload: dict[str, Any] = {
+                        "__intent__": "responses.create",
+                        "model": model,
+                        "input": msgs,
+                    }
+                    if instructions:
+                        payload["instructions"] = instructions
+                    if schema_json:
+                        fmt = (
+                            schema_json
+                            if ("name" in schema_json and "schema" in schema_json)
+                            else {"name": "ResponseSchema", "schema": schema_json}
+                        )
+                        payload["text"] = {"format": {"type": "json_schema", **fmt}}
+                    if model_params:
+                        payload["params"] = model_params
+                    # Input record snapshot
+                    payload["input_record_index"] = idx
+                    payload["input_record"] = row
+                    (req_dir / f"payload_{idx}.json").write_text(
+                        json.dumps(payload, ensure_ascii=False, indent=2),
+                        encoding="utf-8",
+                    )
+                except Exception as exc:  # pragma: no cover
+                    logging.getLogger(__name__).debug("Failed writing raw payload: %s", exc)
             # If schema_json is a plain JSON Schema root with $defs, pass directly (adapter wraps).
             resp = client.generate(
                 model=model,
                 messages=msgs,
                 instructions=instructions,
                 schema=schema_json if schema_json else None,
-                pydantic_model=schema_model,
+                pydantic_model=None,  # no adapter fallback
                 **model_params,
             )
             latency_ms = resp.latency_ms
@@ -97,6 +178,11 @@ def run_execution(
             )
             if not resp.refused and getattr(resp, "error_message", None) is None:
                 validated += 1
+            if fail_fast and (result.error_message or result.refused):
+                results.append(result)
+                if progress and task_id is not None:
+                    progress.stop()
+                break
         results.append(result)
         if log_path is not None:
             # Write a human-readable plain text block per request capturing the raw prompt

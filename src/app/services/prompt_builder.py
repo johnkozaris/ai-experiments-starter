@@ -10,7 +10,7 @@ from app.infrastructure.templating.engine import render_template
 
 def build_messages(
     *,
-    system: Path,
+    system: Path | None,
     user: Path,
     developer: Path | None,
     vars: dict[str, Any],
@@ -22,7 +22,7 @@ def build_messages(
     ctx.setdefault("record", vars)
     if "output" in vars and isinstance(vars["output"], dict):
         ctx["output_keys"] = list(vars["output"].keys())
-    system_text = render_template(system, ctx)
+    system_text = render_template(system, ctx) if system else None
     user_text = render_template(user, ctx)
     messages: list[dict[str, str]] = []
     if system_text:

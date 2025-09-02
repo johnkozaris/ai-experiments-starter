@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,7 @@ from app.infrastructure.artifacts import (
 )
 from app.infrastructure.cost import estimate_run_cost
 from app.infrastructure.llm.client import LLMClient
+from app.infrastructure.llm.schema_transform import adapt_schema_for_structured_outputs
 from app.infrastructure.logging import get_console, log_experiment_start
 from app.services.analytics import build_analytics
 from app.services.execution import run_execution
@@ -71,7 +73,10 @@ def run_experiment(
     # latest pointer
     (run_dir.parent / "latest.txt").write_text(timestamp, encoding="utf-8")
     # variable analysis (skip if chaining)
-    prompt_paths: list[Path] = [Path(resolved.system_prompt_path), Path(resolved.user_prompt_path)]
+    prompt_paths: list[Path] = []
+    if resolved.system_prompt_path:
+        prompt_paths.append(Path(resolved.system_prompt_path))
+    prompt_paths.append(Path(resolved.user_prompt_path))
     if resolved.developer_prompt_path:
         prompt_paths.append(Path(resolved.developer_prompt_path))
     prompt_paths.extend(Path(p) for p in resolved.instruction_paths)
@@ -87,14 +92,57 @@ def run_experiment(
     # structured schema (attached dynamically by resolver)
     schema_json = resolved.model_schema_json
     schema_model_cls = resolved.schema_model_cls
+    # Derive JSON schema from model if resolver did not supply JSON form
+    if schema_json is None and schema_model_cls is not None:
+        try:  # pragma: no cover - pydantic call
+            schema_json = schema_model_cls.model_json_schema()  # type: ignore[attr-defined]
+        except Exception as exc:  # pragma: no cover
+            logging.getLogger(__name__).debug("model_json_schema failed: %s", exc)
+    # Transform once centrally (idempotent if already transformed)
+    if schema_json and isinstance(schema_json, dict):
+        try:
+            schema_json = adapt_schema_for_structured_outputs(schema_json)
+            # Force manual schema usage downstream (avoid adapter model path altering)
+            schema_model_cls = None
+        except Exception as exc:  # pragma: no cover
+            logging.getLogger(__name__).debug("schema transform failed: %s", exc)
     if client is None and not dry_run:
         client = LLMClient(spec.provider)
+    # Build model params and drop unsupported for some models
+    # (e.g., gpt-5 rejects temperature / classic sampling knobs)
+    raw_params: dict[str, Any] = {}
+    if spec.temperature is not None:
+        raw_params["temperature"] = spec.temperature
+    if getattr(spec, "max_output_tokens", None) is not None:
+        # Not always a model param for new Responses API; keep only if needed downstream
+        pass  # left intentionally; adapt if provider exposes param
+    # Additional optional params
+    for key in ("top_p", "presence_penalty", "frequency_penalty", "logprobs"):
+        val = getattr(spec, key, None)
+        if val is not None:
+            raw_params[key] = val
+
+    def _sanitize_params(model: str, provider: str, params: dict[str, Any]) -> dict[str, Any]:
+        unsupported: set[str] = set()
+    # GPT-5 preview rejects classic sampling knobs: temperature, top_p, penalties
+        if model.startswith("gpt-5"):
+            unsupported.update({
+                "temperature",
+                "top_p",
+                "presence_penalty",
+                "frequency_penalty",
+                "logprobs",
+            })
+        return {k: v for k, v in params.items() if k not in unsupported}
+
+    model_params_sanitized = _sanitize_params(spec.model, spec.provider, raw_params)
+
     exec_res = run_execution(
         client=client,
         model=spec.model,
         records=dataset,
         selected_indices=selected_indices,
-        system_path=Path(resolved.system_prompt_path),
+    system_path=(Path(resolved.system_prompt_path) if resolved.system_prompt_path else None),
         user_path=Path(resolved.user_prompt_path),
         developer_path=(
             Path(resolved.developer_prompt_path)
@@ -105,9 +153,12 @@ def run_experiment(
         dry_run=dry_run,
     # Plain-text raw request/response log (no metrics metadata)
     log_path=run_dir / "logs" / "llm_requests.log",
-        model_params={"temperature": spec.temperature} if spec.temperature is not None else None,
-        schema_json=schema_json,
-        schema_model=schema_model_cls,
+    model_params=model_params_sanitized or None,
+    schema_json=schema_json,
+    schema_model=schema_model_cls,
+    run_dir=run_dir,
+    fail_fast=True,
+    throttle_ms=int(os.getenv("EXPERIMENT_THROTTLE_MS", "0") or 0),
     )
     metrics = exec_res.metrics
     est_cost = (
@@ -120,14 +171,7 @@ def run_experiment(
         timestamp=timestamp,
         model=spec.model,
         provider=spec.provider,
-        parameters={
-            "temperature": spec.temperature,
-            "max_output_tokens": spec.max_output_tokens,
-            "top_p": getattr(spec, "top_p", None),
-            "presence_penalty": getattr(spec, "presence_penalty", None),
-            "frequency_penalty": getattr(spec, "frequency_penalty", None),
-            "logprobs": getattr(spec, "logprobs", None),
-        },
+        parameters=model_params_sanitized,
         dataset_size=len(dataset),
         selected_count=len(selected_indices),
     )
@@ -147,7 +191,11 @@ def run_experiment(
     )
     # persist artifacts
     snapshot = PromptSnapshot(
-        system=Path(resolved.system_prompt_path).read_text(encoding="utf-8"),
+        system=(
+            Path(resolved.system_prompt_path).read_text(encoding="utf-8")
+            if resolved.system_prompt_path
+            else ""
+        ),
         user_template=Path(resolved.user_prompt_path).read_text(encoding="utf-8"),
         instructions=[Path(p).read_text(encoding="utf-8") for p in resolved.instruction_paths],
         developer=(
