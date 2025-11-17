@@ -79,6 +79,7 @@ build-backend = "hatchling.build"
 dev = [
     "mypy>=1.17.1",
     "ruff>=0.12.10",
+    "types-pyyaml>=6.0.12.20250915",
 ]
 
 # Explicit hatch build config so hatchling knows which package directory to ship.
