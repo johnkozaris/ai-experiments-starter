@@ -11,35 +11,35 @@ authors = [
 
 # Core runtime deps (lean but modern)
 dependencies = [
-  "openai>=1.0",          # Unified OpenAI & Azure OpenAI Python SDK (Responses API, structured outputs)
-  "pydantic>=2.7",        # Data validation / settings / JSON Schema generation for structured outputs
+  "openai>=2.8",          # Unified OpenAI & Azure OpenAI Python SDK (Responses API, structured outputs)
+  "pydantic>=2.12",       # Data validation / settings / JSON Schema generation for structured outputs
   "jinja2>=3.1",          # Prompt templating (parameterized user/system prompts)
-  "orjson>=3.9",          # Ultra fast JSON (used for JSONL read/write of datasets & results)
-  "python-dotenv>=1.0",   # Load local .env with API keys for OpenAI / Azure
-  "typer>=0.12",          # CLI framework (builds the `expt` command)
+  "orjson>=3.11",         # Ultra fast JSON (used for JSONL read/write of datasets & results)
+  "python-dotenv>=1.2",   # Load local .env with API keys for OpenAI / Azure
+  "typer>=0.20",          # CLI framework (builds the `expt` command)
   # NOTE: previously referenced `expt`; current console scripts are `xai`, `xexp`, etc.
-  "rich>=13.7",           # Pretty logging / console output (color, tracebacks)
-  "tqdm>=4.66",           # Progress bars for batch runs
-  "httpx>=0.27",          # Async/advanced HTTP client (future custom calls, retries, proxies)
+  "rich>=14.2",           # Pretty logging / console output (color, tracebacks)
+  "tqdm>=4.67",           # Progress bars for batch runs
+  "httpx>=0.28",          # Async/advanced HTTP client (future custom calls, retries, proxies)
   "pyyaml>=6.0",          # YAML config loading
 ]
 
 [project.optional-dependencies]
 notebooks = [
-  "jupyterlab>=4.2",      # Modern notebook / IDE environment
-  "ipykernel>=6.29",      # Kernel to run Python code in notebooks (links env to Jupyter)
+  "jupyterlab>=4.4",      # Modern notebook / IDE environment
+  "ipykernel>=7.1",       # Kernel to run Python code in notebooks (links env to Jupyter)
   "ipywidgets>=8.1",      # Interactive widgets for richer exploratory tooling
-  "pandas>=2.2",          # DataFrame exploration & analysis in notebooks
-  "plotly>=5.22",         # Interactive charts (used in walkthrough notebook)
+  "pandas>=2.3",          # DataFrame exploration & analysis in notebooks
+  "plotly>=6.4",          # Interactive charts (used in walkthrough notebook)
 ]
 azure = [
-  "azure-identity>=1.16",     # Credential helpers (Managed Identity, CLI, Visual Studio, etc.)
-  "azure-ai-projects>=1.0.0b12", # Higher-level helpers (preview) for Azure AI project & OpenAI client acquisition
+  "azure-identity>=1.25",     # Credential helpers (Managed Identity, CLI, Visual Studio, etc.)
+  "azure-ai-projects>=2.0.0b2", # Higher-level helpers (preview) for Azure AI project & OpenAI client acquisition
 ]
 dev = [
-  "ruff>=0.6",                 # Linter + formatter
-  "mypy>=1.10",                # Static type checking
-  "types-requests>=2.32.0.20240712", # Type stubs for requests
+  "ruff>=0.14",                # Linter + formatter
+  "mypy>=1.18",                # Static type checking
+  "types-requests>=2.32.4.20250913", # Type stubs for requests
 ]
 
 [project.scripts]
@@ -77,8 +77,8 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-    "mypy>=1.17.1",
-    "ruff>=0.12.10",
+    "mypy>=1.18",
+    "ruff>=0.14",
     "types-pyyaml>=6.0.12.20250915",
 ]
 
