@@ -496,33 +496,33 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "azure-ai-projects", marker = "extra == 'azure'", specifier = ">=1.0.0b12" },
-    { name = "azure-identity", marker = "extra == 'azure'", specifier = ">=1.16" },
-    { name = "httpx", specifier = ">=0.27" },
-    { name = "ipykernel", marker = "extra == 'notebooks'", specifier = ">=6.29" },
+    { name = "azure-ai-projects", marker = "extra == 'azure'", specifier = ">=2.0.0b2" },
+    { name = "azure-identity", marker = "extra == 'azure'", specifier = ">=1.25" },
+    { name = "httpx", specifier = ">=0.28" },
+    { name = "ipykernel", marker = "extra == 'notebooks'", specifier = ">=7.1" },
     { name = "ipywidgets", marker = "extra == 'notebooks'", specifier = ">=8.1" },
     { name = "jinja2", specifier = ">=3.1" },
-    { name = "jupyterlab", marker = "extra == 'notebooks'", specifier = ">=4.2" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
-    { name = "openai", specifier = ">=1.0" },
-    { name = "orjson", specifier = ">=3.9" },
-    { name = "pandas", marker = "extra == 'notebooks'", specifier = ">=2.2" },
-    { name = "plotly", marker = "extra == 'notebooks'", specifier = ">=5.22" },
-    { name = "pydantic", specifier = ">=2.7" },
-    { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "jupyterlab", marker = "extra == 'notebooks'", specifier = ">=4.4" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.18" },
+    { name = "openai", specifier = ">=2.8" },
+    { name = "orjson", specifier = ">=3.11" },
+    { name = "pandas", marker = "extra == 'notebooks'", specifier = ">=2.3" },
+    { name = "plotly", marker = "extra == 'notebooks'", specifier = ">=6.4" },
+    { name = "pydantic", specifier = ">=2.12" },
+    { name = "python-dotenv", specifier = ">=1.2" },
     { name = "pyyaml", specifier = ">=6.0" },
-    { name = "rich", specifier = ">=13.7" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
-    { name = "tqdm", specifier = ">=4.66" },
-    { name = "typer", specifier = ">=0.12" },
-    { name = "types-requests", marker = "extra == 'dev'", specifier = ">=2.32.0.20240712" },
+    { name = "rich", specifier = ">=14.2" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.14" },
+    { name = "tqdm", specifier = ">=4.67" },
+    { name = "typer", specifier = ">=0.20" },
+    { name = "types-requests", marker = "extra == 'dev'", specifier = ">=2.32.4.20250913" },
 ]
 provides-extras = ["notebooks", "azure", "dev"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "mypy", specifier = ">=1.17.1" },
-    { name = "ruff", specifier = ">=0.12.10" },
+    { name = "mypy", specifier = ">=1.18" },
+    { name = "ruff", specifier = ">=0.14" },
     { name = "types-pyyaml", specifier = ">=6.0.12.20250915" },
 ]
 
